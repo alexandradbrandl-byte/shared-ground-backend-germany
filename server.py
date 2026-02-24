@@ -1,36 +1,31 @@
 """
 server.py — Web server + API
-Serves articles as JSON for your Lovable frontend (or any frontend).
-
-Run with: python server.py
-API available at: http://localhost:5000/api/articles
 """
 
 import os
 import threading
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
-from scraper import get_all_articles, get_connection, setup_database, scrape_all_feeds, USE_POSTGRES
+from scraper import get_all_articles, get_connection, setup_database, scrape_all_feeds, USE_POSTGRES, KEYWORDS
 from datetime import datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 
 app = Flask(__name__, static_folder=".")
 CORS(app)
 
-# Topic display metadata
 TOPIC_META = {
-    "Reproduktive Rechte":  {"icon": "🩺", "color": "#E91E8C"},
+    "Reproduktive Rechte":    {"icon": "🩺", "color": "#E91E8C"},
     "Lohnlücke & Wirtschaft": {"icon": "💰", "color": "#FFA52C"},
-    "LGBTQIA+":             {"icon": "🏳️‍🌈", "color": "#7B2FBE"},
-    "Migration & Asyl":     {"icon": "🌍", "color": "#00BCD4"},
-    "Menschenrechte":       {"icon": "⚖️", "color": "#FF0018"},
-    "Gesundheit & Medizin": {"icon": "🏥", "color": "#4CAF50"},
-    "Recht & Politik":      {"icon": "📜", "color": "#9C27B0"},
-    "Politik & Regierung":  {"icon": "🏛️", "color": "#3F51B5"},
-    "Kultur & Medien":      {"icon": "🎭", "color": "#FF9800"},
-    "Sport":                {"icon": "⚽", "color": "#008018"},
-    "Gewalt & Sicherheit":  {"icon": "🛡️", "color": "#F44336"},
-    "Arbeit & Wirtschaft":  {"icon": "💼", "color": "#607D8B"},
+    "LGBTQIA+":               {"icon": "🏳️‍🌈", "color": "#7B2FBE"},
+    "Migration & Asyl":       {"icon": "🌍", "color": "#00BCD4"},
+    "Menschenrechte":         {"icon": "⚖️", "color": "#FF0018"},
+    "Gesundheit & Medizin":   {"icon": "🏥", "color": "#4CAF50"},
+    "Recht & Politik":        {"icon": "📜", "color": "#9C27B0"},
+    "Politik & Regierung":    {"icon": "🏛️", "color": "#3F51B5"},
+    "Kultur & Medien":        {"icon": "🎭", "color": "#FF9800"},
+    "Sport":                  {"icon": "⚽", "color": "#008018"},
+    "Gewalt & Sicherheit":    {"icon": "🛡️", "color": "#F44336"},
+    "Arbeit & Wirtschaft":    {"icon": "💼", "color": "#607D8B"},
 }
 
 
@@ -98,7 +93,6 @@ def topics():
     conn = get_connection()
     cursor = conn.cursor()
     ph = "%s" if USE_POSTGRES else "?"
-
     result = []
     for topic_name, meta in TOPIC_META.items():
         cursor.execute(
@@ -112,7 +106,6 @@ def topics():
             "icon": meta["icon"],
             "color": meta["color"],
         })
-
     conn.close()
     result.sort(key=lambda x: x["count"], reverse=True)
     return jsonify(result)
@@ -140,36 +133,89 @@ def stats():
     })
 
 
+@app.route("/api/analytics/sources")
+def analytics_sources():
+    """Articles per source in the last 7 days."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    ph = "%s" if USE_POSTGRES else "?"
+    seven_days_ago = (datetime.now() - timedelta(days=7)).isoformat()
+    cursor.execute(
+        f"SELECT source, COUNT(*) as count FROM articles WHERE scraped_at >= {ph} GROUP BY source ORDER BY count DESC",
+        [seven_days_ago]
+    )
+    result = [{"source": row[0], "count": row[1]} for row in cursor.fetchall()]
+    conn.close()
+    return jsonify(result)
+
+
+@app.route("/api/analytics/daily")
+def analytics_daily():
+    """Articles per day in the last 90 days."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    ph = "%s" if USE_POSTGRES else "?"
+    ninety_days_ago = (datetime.now() - timedelta(days=90)).isoformat()
+    if USE_POSTGRES:
+        cursor.execute(
+            f"SELECT DATE(scraped_at::timestamp) as day, COUNT(*) as count FROM articles WHERE scraped_at >= {ph} GROUP BY day ORDER BY day",
+            [ninety_days_ago]
+        )
+    else:
+        cursor.execute(
+            f"SELECT DATE(scraped_at) as day, COUNT(*) as count FROM articles WHERE scraped_at >= {ph} GROUP BY day ORDER BY day",
+            [ninety_days_ago]
+        )
+    result = [{"date": str(row[0]), "count": row[1]} for row in cursor.fetchall()]
+    conn.close()
+    return jsonify(result)
+
+
+@app.route("/api/analytics/keywords")
+def analytics_keywords():
+    """Most frequent keywords across all articles."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT title, summary FROM articles")
+    rows = cursor.fetchall()
+    conn.close()
+    keyword_counts = {}
+    for row in rows:
+        text = (row[0] + " " + row[1]).lower()
+        for kw in KEYWORDS:
+            if kw in text and len(kw) > 4:
+                keyword_counts[kw] = keyword_counts.get(kw, 0) + 1
+    result = [
+        {"keyword": k, "count": v}
+        for k, v in sorted(keyword_counts.items(), key=lambda x: x[1], reverse=True)[:50]
+    ]
+    return jsonify(result)
+
+
 @app.route("/api/scrape")
 def trigger_scrape():
-    """Manually trigger a scrape (visit this URL to refresh articles)."""
     def do_scrape():
         scrape_all_feeds()
     thread = threading.Thread(target=do_scrape)
     thread.start()
-    return jsonify({"status": "Scraping gestartet! Bitte in ein paar Minuten neu laden."})
+    return jsonify({"status": "Scraping gestartet!"})
 
-
-# ── Serve the built-in frontend ──────────────────────────────────────────────
 
 @app.route("/")
 def index():
     return send_from_directory(".", "index.html")
 
 
-# ── Startup: setup DB, initial scrape, scheduler ─────────────────────────────
-
 def startup():
-    """Run once on app startup: setup DB, initial scrape, daily scheduler."""
     setup_database()
 
     def initial_scrape():
         try:
-            print("🚀 Running initial scrape...", flush=True)
+            print("Running initial scrape...", flush=True)
             scrape_all_feeds()
-            print("✅ Initial scrape complete!", flush=True)
+            print("Initial scrape complete!", flush=True)
         except Exception as e:
-            print(f"❌ Initial scrape failed: {e}", flush=True)
+            print(f"Initial scrape failed: {e}", flush=True)
 
     thread = threading.Thread(target=initial_scrape)
     thread.start()
@@ -181,7 +227,7 @@ def startup():
         id='scheduled_scrape'
     )
     scheduler.start()
-    print("📅 Scheduler aktiv — scrapet alle 12 Stunden.")
+    print("Scheduler aktiv - scrapet alle 12 Stunden.")
 
 
 startup()
@@ -189,7 +235,4 @@ startup()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    print(f"\n🌐 API läuft auf http://localhost:{port}")
-    print("   Endpoints: /api/articles  /api/sources  /api/countries  /api/topics  /api/stats")
-    print("   Zum Stoppen: Ctrl+C\n")
     app.run(debug=False, host="0.0.0.0", port=port)
