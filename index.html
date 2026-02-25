@@ -2,18 +2,47 @@
 <html lang="de">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>shared ground — Deine Nachrichten. Deine Perspektive.</title>
-    <meta name="description" content="shared ground aggregiert feministische, frauenpolitische und LGBTQIA+-Nachrichten aus dem deutschsprachigen Raum." />
+
+    <title>shared ground</title>
+    <meta name="description" content="Feministische und LGBTQIA+ Nachrichten aus dem deutschsprachigen Raum." />
     <meta name="author" content="shared ground" />
+
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#4c1d95" />
+
+    <!-- iOS -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="shared ground" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+
+    <!-- Open Graph -->
     <meta property="og:title" content="shared ground" />
-    <meta property="og:description" content="Deine Nachrichten. Deine Perspektive. Feministische und LGBTQIA+-Nachrichten aus dem deutschsprachigen Raum." />
+    <meta property="og:description" content="Feministische und LGBTQIA+ Nachrichten aus dem deutschsprachigen Raum." />
     <meta property="og:type" content="website" />
+    <meta property="og:image" content="/icon-512.png" />
+
+    <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="/icon-512.png" />
+
+    <!-- Favicon -->
+    <link rel="icon" href="/favicon.ico" />
   </head>
+
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+
+    <!-- Register Service Worker -->
+    <script>
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", function () {
+          navigator.serviceWorker.register("/sw.js");
+        });
+      }
+    </script>
   </body>
 </html>
