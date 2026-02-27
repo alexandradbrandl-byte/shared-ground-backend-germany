@@ -4,6 +4,7 @@ server.py — Web server + API
 
 import os
 import threading
+import re
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from scraper import get_all_articles, get_connection, setup_database, scrape_all_feeds, USE_POSTGRES, KEYWORDS
@@ -27,6 +28,32 @@ TOPIC_META = {
     "Gewalt & Sicherheit":    {"icon": "🛡️", "color": "#F44336"},
     "Arbeit & Wirtschaft":    {"icon": "💼", "color": "#607D8B"},
 }
+
+
+def setup_subscribers():
+    """Create subscribers table if it doesn't exist."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    if USE_POSTGRES:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS subscribers (
+                id SERIAL PRIMARY KEY,
+                email TEXT UNIQUE NOT NULL,
+                subscribed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                active BOOLEAN DEFAULT TRUE
+            )
+        """)
+    else:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS subscribers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT UNIQUE NOT NULL,
+                subscribed_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                active INTEGER DEFAULT 1
+            )
+        """)
+    conn.commit()
+    conn.close()
 
 
 def resolve_time_range(label):
@@ -135,7 +162,6 @@ def stats():
 
 @app.route("/api/analytics/sources")
 def analytics_sources():
-    """Articles per source in the last 7 days."""
     conn = get_connection()
     cursor = conn.cursor()
     ph = "%s" if USE_POSTGRES else "?"
@@ -151,7 +177,6 @@ def analytics_sources():
 
 @app.route("/api/analytics/daily")
 def analytics_daily():
-    """Articles per day in the last 90 days."""
     conn = get_connection()
     cursor = conn.cursor()
     ph = "%s" if USE_POSTGRES else "?"
@@ -173,7 +198,6 @@ def analytics_daily():
 
 @app.route("/api/analytics/keywords")
 def analytics_keywords():
-    """Most frequent keywords across all articles."""
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT title, summary FROM articles")
@@ -192,6 +216,47 @@ def analytics_keywords():
     return jsonify(result)
 
 
+# ── Newsletter ────────────────────────────────────────────────────────────────
+
+@app.route("/api/newsletter/subscribe", methods=["POST"])
+def newsletter_subscribe():
+    data = request.get_json(silent=True) or {}
+    email = (data.get("email") or "").strip().lower()
+
+    if not email or "@" not in email or "." not in email.split("@")[-1]:
+        return jsonify({"error": "Bitte gib eine gültige E-Mail-Adresse ein."}), 400
+
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        ph = "%s" if USE_POSTGRES else "?"
+        cursor.execute(
+            f"INSERT INTO subscribers (email) VALUES ({ph})",
+            [email]
+        )
+        conn.commit()
+        conn.close()
+        return jsonify({"status": "ok", "message": "Erfolgreich angemeldet!"})
+    except Exception as e:
+        err = str(e).lower()
+        if "unique" in err or "duplicate" in err:
+            return jsonify({"error": "Diese E-Mail ist bereits angemeldet."}), 409
+        return jsonify({"error": "Fehler beim Speichern. Bitte versuch es später."}), 500
+
+
+@app.route("/api/newsletter/subscribers")
+def newsletter_subscribers():
+    """Admin endpoint — returns subscriber count and list."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM subscribers WHERE active = 1")
+    count = cursor.fetchone()[0]
+    conn.close()
+    return jsonify({"count": count})
+
+
+# ── Scrape ────────────────────────────────────────────────────────────────────
+
 @app.route("/api/scrape")
 def trigger_scrape():
     def do_scrape():
@@ -208,6 +273,7 @@ def index():
 
 def startup():
     setup_database()
+    setup_subscribers()
 
     def initial_scrape():
         try:
