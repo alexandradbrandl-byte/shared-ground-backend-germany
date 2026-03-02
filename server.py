@@ -15,8 +15,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 app = Flask(__name__, static_folder=".")
 CORS(app)
 
-BREVO_API_KEY    = os.environ.get("BREVO_API_KEY", "")
-BREVO_SENDER     = os.environ.get("BREVO_SENDER_EMAIL", "alexandra.d.brandl@gmail.com")
+BREVO_API_KEY     = os.environ.get("BREVO_API_KEY", "")
+BREVO_SENDER      = os.environ.get("BREVO_SENDER_EMAIL", "alexandra.d.brandl@gmail.com")
 BREVO_SENDER_NAME = os.environ.get("BREVO_SENDER_NAME", "shared ground")
 
 TOPIC_META = {
@@ -33,6 +33,16 @@ TOPIC_META = {
     "Gewalt & Sicherheit":    {"icon": "🛡️", "color": "#F44336"},
     "Arbeit & Wirtschaft":    {"icon": "💼", "color": "#607D8B"},
 }
+
+GERMAN_MONTHS = {
+    1: "Januar", 2: "Februar", 3: "März", 4: "April",
+    5: "Mai", 6: "Juni", 7: "Juli", 8: "August",
+    9: "September", 10: "Oktober", 11: "November", 12: "Dezember"
+}
+
+
+def format_german_date(dt):
+    return f"{dt.day}. {GERMAN_MONTHS[dt.month]} {dt.year}"
 
 
 def setup_subscribers():
@@ -66,22 +76,30 @@ def make_unsubscribe_token(email):
 
 
 def build_newsletter_html(articles, unsubscribe_url):
-    date_str = datetime.now().strftime("%-d. %B %Y")
+    date_str = format_german_date(datetime.now())
     rows = ""
-    for a in articles:
-        source = a.get("source", "")
-        title  = a.get("title", "")
-        link   = a.get("link", "#")
-        summary = (a.get("summary") or "")[:200]
-        if summary:
-            summary = f'<p style="font-size:14px;color:#555;line-height:1.6;margin:8px 0 0;">{summary}…</p>'
+    for i, a in enumerate(articles, 1):
+        source  = a.get("source", "")
+        title   = a.get("title", "")
+        link    = a.get("link", "#")
+        summary = (a.get("summary") or "")[:220]
+        if summary and not summary.endswith("…"):
+            summary += "…"
+        summary_html = (
+            f'<p style="font-size:14px;color:#4a4a4a;line-height:1.7;margin:10px 0 0;">{summary}</p>'
+            if summary else ""
+        )
         rows += f"""
-        <div style="border-bottom:1px solid #eee;padding:20px 0;">
-          <p style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;margin:0;">{source}</p>
-          <p style="font-size:18px;font-weight:bold;color:#1a1a1a;margin:8px 0;line-height:1.4;">{title}</p>
-          {summary}
-          <p style="margin:10px 0 0;">
-            <a href="{link}" style="color:#4c1d95;font-size:13px;font-weight:bold;text-decoration:none;">
+        <div style="border-left:3px solid #4c1d95;padding:0 0 28px 20px;margin-bottom:28px;border-bottom:1px solid #ece9f0;">
+          <p style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:1.5px;margin:0 0 8px;font-family:sans-serif;">
+            {i:02d} &nbsp;&middot;&nbsp; {source}
+          </p>
+          <h2 style="font-size:19px;font-weight:bold;color:#1a1a1a;margin:0;line-height:1.4;">
+            <a href="{link}" style="color:#1a1a1a;text-decoration:none;">{title}</a>
+          </h2>
+          {summary_html}
+          <p style="margin:14px 0 0;">
+            <a href="{link}" style="color:#4c1d95;font-size:13px;font-weight:bold;text-decoration:none;border-bottom:1px solid #c4b5fd;padding-bottom:1px;">
               Artikel lesen &#x2192;
             </a>
           </p>
@@ -89,46 +107,66 @@ def build_newsletter_html(articles, unsubscribe_url):
 
     return f"""<!DOCTYPE html>
 <html lang="de">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f5f5f5;font-family:Georgia,serif;">
-  <div style="max-width:600px;margin:0 auto;background:white;">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>shared ground &mdash; {date_str}</title>
+</head>
+<body style="margin:0;padding:0;background:#f0ecf8;font-family:Georgia,serif;">
+<div style="max-width:620px;margin:32px auto;background:#ffffff;border-radius:4px;overflow:hidden;box-shadow:0 2px 12px rgba(76,29,149,0.08);">
 
-    <!-- Header -->
-    <div style="background:#4c1d95;padding:36px 32px;text-align:center;">
-      <h1 style="color:white;font-size:28px;margin:0;letter-spacing:3px;font-weight:bold;">
-        shared ground
-      </h1>
-      <p style="color:rgba(255,255,255,0.75);font-size:13px;margin:10px 0 0;">
-        Die Woche im Rückblick &mdash; {date_str}
-      </p>
-    </div>
-
-    <!-- Intro -->
-    <div style="padding:28px 32px 0;">
-      <p style="font-size:15px;color:#333;line-height:1.7;margin:0;">
-        Hier sind die wichtigsten Nachrichten aus Feminismus, Frauen und LGBTQIA+
-        der vergangenen Woche &mdash; kuratiert von shared ground.
-      </p>
-    </div>
-
-    <!-- Articles -->
-    <div style="padding:8px 32px 32px;">
-      {rows}
-    </div>
-
-    <!-- Footer -->
-    <div style="background:#f5f5f5;padding:24px 32px;text-align:center;border-top:1px solid #eee;">
-      <p style="font-size:12px;color:#999;margin:0;">
-        Du erhältst diesen Newsletter weil du dich auf
-        <a href="https://shared-ground-frontend.vercel.app" style="color:#4c1d95;">shared-ground-frontend.vercel.app</a>
-        angemeldet hast.
-      </p>
-      <p style="font-size:12px;color:#999;margin:8px 0 0;">
-        <a href="{unsubscribe_url}" style="color:#999;">Abmelden</a>
-      </p>
-    </div>
-
+  <!-- Header -->
+  <div style="background:#4c1d95;padding:44px 40px 36px;text-align:center;">
+    <h1 style="color:#ffffff;font-size:32px;margin:0;letter-spacing:4px;font-weight:bold;font-family:Georgia,serif;">
+      shared ground
+    </h1>
+    <p style="color:rgba(255,255,255,0.65);font-size:12px;margin:10px 0 0;letter-spacing:1px;">
+      deine nachrichten. deine perspektive.
+    </p>
+    <div style="margin:20px auto 0;width:40px;height:1px;background:rgba(255,255,255,0.3);"></div>
+    <p style="color:rgba(255,255,255,0.8);font-size:13px;margin:16px 0 0;font-style:italic;">
+      Die Woche im R&uuml;ckblick &mdash; {date_str}
+    </p>
   </div>
+
+  <!-- Intro -->
+  <div style="padding:32px 40px 8px;border-bottom:1px solid #ece9f0;">
+    <p style="font-size:15px;color:#333;line-height:1.8;margin:0;">
+      Guten Morgen! Hier sind die wichtigsten Nachrichten aus Feminismus,
+      Frauen und LGBTQIA+ der vergangenen Woche &mdash; zusammengestellt von shared ground.
+    </p>
+  </div>
+
+  <!-- Articles -->
+  <div style="padding:32px 40px 8px;">
+    <p style="font-size:10px;color:#9f7aea;text-transform:uppercase;letter-spacing:2px;margin:0 0 24px;font-family:sans-serif;">
+      Diese Woche
+    </p>
+    {rows}
+  </div>
+
+  <!-- CTA -->
+  <div style="background:#f9f7ff;padding:28px 40px;text-align:center;border-top:1px solid #ece9f0;">
+    <p style="font-size:14px;color:#555;margin:0 0 16px;">
+      Alle Artikel und mehr findest du auf unserer Website:
+    </p>
+    <a href="https://shared-ground-frontend.vercel.app"
+       style="display:inline-block;background:#4c1d95;color:#ffffff;text-decoration:none;padding:12px 28px;font-size:13px;font-weight:bold;letter-spacing:1px;border-radius:2px;font-family:sans-serif;">
+      shared ground &ouml;ffnen
+    </a>
+  </div>
+
+  <!-- Footer -->
+  <div style="padding:24px 40px;text-align:center;background:#ffffff;">
+    <p style="font-size:11px;color:#aaa;margin:0;line-height:1.8;">
+      Du erh&auml;ltst diesen Newsletter weil du dich auf shared ground angemeldet hast.<br>
+      <a href="{unsubscribe_url}" style="color:#aaa;text-decoration:underline;">Abmelden</a>
+      &nbsp;&middot;&nbsp;
+      <a href="https://shared-ground-frontend.vercel.app" style="color:#aaa;text-decoration:underline;">Website</a>
+    </p>
+  </div>
+
+</div>
 </body>
 </html>"""
 
@@ -179,7 +217,7 @@ def send_newsletter():
         return
 
     print(f"Sende Newsletter an {len(subscribers)} Subscriber(s)...")
-    date_str = datetime.now().strftime("%-d. %B %Y")
+    date_str = format_german_date(datetime.now())
     success = 0
 
     for email in subscribers:
@@ -424,7 +462,6 @@ def newsletter_subscribers():
 
 @app.route("/api/newsletter/send-now")
 def newsletter_send_now():
-    """Manual trigger for testing."""
     thread = threading.Thread(target=send_newsletter)
     thread.start()
     return jsonify({"status": "Newsletter wird gesendet..."})
@@ -467,7 +504,6 @@ def startup():
         'interval', hours=12,
         id='scheduled_scrape'
     )
-    # Jeden Sonntag um 8:00 Uhr Newsletter versenden
     scheduler.add_job(
         send_newsletter,
         'cron',
