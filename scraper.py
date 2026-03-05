@@ -94,7 +94,7 @@ FEEDS = {
     "News AT":              {"url": "https://www.news.at/rss",                                         "country": "Austria",       "language": "DE"},
     "Moment AT":            {"url": "https://moment.at/feed/",                                         "country": "Austria",       "language": "DE"},
     "Vienna AT":            {"url": "https://www.vienna.at/feed",                                      "country": "Austria",       "language": "DE"},
-    "Trend AT":             {"url": "https://www.trend.at/rss",                                        "country": "Austria",       "language": "DE"},
+    "Wienerin":             {"url": "https://www.wienerin.at/feed",                                    "country": "Austria",       "language": "DE"},
     "Wiener Zeitung":       {"url": "https://www.wienerzeitung.at/rss",                                "country": "Austria",       "language": "DE"},
     "APA OTS":              {"url": "https://www.ots.at/rss",                                          "country": "Austria",       "language": "DE"},
 
