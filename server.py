@@ -3,6 +3,8 @@ server.py — Web server + API
 """
 
 import os
+import re
+import time
 import threading
 import hashlib
 import requests as http_requests
@@ -496,6 +498,60 @@ def delete_old_articles():
     print(f"Cleanup: deleted {deleted} articles older than 90 days.", flush=True)
 
 
+def enrich_images_batch(batch_size=15):
+    """Fetch og:image for articles that have no image_url yet."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            f"SELECT id, link FROM articles WHERE (image_url IS NULL OR image_url = '') LIMIT {batch_size}"
+        )
+        rows = cursor.fetchall()
+    except Exception as e:
+        print(f"Image enrichment DB error: {e}", flush=True)
+        conn.close()
+        return
+    conn.close()
+
+    updated = 0
+    for row in rows:
+        article_id, link = row[0], row[1]
+        try:
+            resp = http_requests.get(
+                link,
+                timeout=8,
+                headers={"User-Agent": "Mozilla/5.0 (compatible; SharedGroundBot/1.0)"},
+                allow_redirects=True,
+            )
+            if resp.ok:
+                # Try og:image — two attribute orderings
+                og_match = re.search(
+                    r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']',
+                    resp.text,
+                ) or re.search(
+                    r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']',
+                    resp.text,
+                )
+                if og_match:
+                    image_url = og_match.group(1).strip()
+                    if image_url.startswith("http"):
+                        conn2 = get_connection()
+                        cur2 = conn2.cursor()
+                        ph = "%s" if USE_POSTGRES else "?"
+                        cur2.execute(
+                            f"UPDATE articles SET image_url = {ph} WHERE id = {ph}",
+                            [image_url, article_id],
+                        )
+                        conn2.commit()
+                        conn2.close()
+                        updated += 1
+        except Exception:
+            pass
+        time.sleep(1)
+
+    print(f"Image enrichment: {updated}/{len(rows)} articles updated.", flush=True)
+
+
 def startup():
     setup_database()
     setup_subscribers()
@@ -532,8 +588,14 @@ def startup():
         hour=3,
         id='weekly_cleanup'
     )
+    scheduler.add_job(
+        enrich_images_batch,
+        'interval',
+        minutes=30,
+        id='image_enrichment'
+    )
     scheduler.start()
-    print("Scheduler aktiv — scrapet alle 12h, Newsletter jeden Sonntag um 8 Uhr.")
+    print("Scheduler aktiv — scrapet alle 12h, Newsletter jeden Sonntag um 8 Uhr, Bilder-Anreicherung alle 30 Min.")
 
 
 startup()
